@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Task Management System</title>
+    <link rel="stylesheet" href="dashboard.css">
+</head>
+<body>
+    <!-- Login/Register Modal -->
+    <div id="auth-modal" class="modal">
+        <div class="modal-content">
+            <div class="auth-tabs">
+                <button class="tab-btn active" onclick="showLogin()">Login</button>
+                <button class="tab-btn" onclick="showRegister()">Register</button>
+            </div>
+            
+            <!-- Login Form -->
+            <div id="login-form" class="auth-form">
+                <h2>Login to Your Account</h2>
+                <form id="loginForm">
+                    <div class="form-group">
+                        <label for="login-email">Email</label>
+                        <input type="email" id="login-email" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="login-password">Password</label>
+                        <input type="password" id="login-password" required>
+                    </div>
+                    <button type="submit" class="btn-primary">Login</button>
+                </form>
+                <div class="demo-accounts">
+                    <p>Demo Accounts:</p>
+                    <button onclick="quickLogin('admin@demo.com', 'Admin User')" class="demo-btn">Admin</button>
+                    <button onclick="quickLogin('john@demo.com', 'John Smith')" class="demo-btn">John</button>
+                    <button onclick="quickLogin('sarah@demo.com', 'Sarah Johnson')" class="demo-btn">Sarah</button>
+                </div>
+            </div>
+            
+            <!-- Register Form -->
+            <div id="register-form" class="auth-form" style="display: none;">
+                <h2>Create New Account</h2>
+                <form id="registerForm">
+                    <div class="form-group">
+                        <label for="register-name">Full Name</label>
+                        <input type="text" id="register-name" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="register-email">Email</label>
+                        <input type="email" id="register-email" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="register-password">Password</label>
+                        <input type="password" id="register-password" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="register-role">Role</label>
+                        <select id="register-role" required>
+                            <option value="employee">Employee</option>
+                            <option value="manager">Manager</option>
+                            <option value="admin">Admin</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="btn-primary">Register</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="container" id="main-app" style="display: none;">
+        <header>
+            <h1>Task Management System</h1>
+            <div class="user-info">
+                <span id="user-welcome">Welcome, User</span>
+                <button class="btn-logout" onclick="logout()">Logout</button>
+            </div>
+        </header>
+
+        <main>
+            <div class="dashboard">
+                <div class="stats">
+                    <div class="stat-card">
+                        <h3>Total Tasks</h3>
+                        <span class="stat-number" id="total-tasks">0</span>
+                    </div>
+                    <div class="stat-card">
+                        <h3>In Progress</h3>
+                        <span class="stat-number" id="in-progress-tasks">0</span>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Completed</h3>
+                        <span class="stat-number" id="completed-tasks">0</span>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Overdue</h3>
+                        <span class="stat-number" id="overdue-tasks">0</span>
+                    </div>
+                </div>
+
+                <div class="content-area">
+                    <div class="task-form-section">
+                        <h2>Create New Task</h2>
+                        <form class="task-form" id="task-form">
+                            <div class="form-group">
+                                <label for="task-title">Task Title</label>
+                                <input type="text" id="task-title" name="task-title" placeholder="Enter task title" required>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="task-description">Description</label>
+                                <textarea id="task-description" name="task-description" placeholder="Enter task description" required></textarea>
+                            </div>
+                            
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="assigned-to">Assign To</label>
+                                    <select id="assigned-to" name="assigned-to" required>
+                                        <option value="">Select Employee</option>
+                                    </select>
+                                </div>
+                                
+                                <div class="form-group">
+                                    <label for="priority">Priority</label>
+                                    <select id="priority" name="priority" required>
+                                        <option value="low">Low</option>
+                                        <option value="medium">Medium</option>
+                                        <option value="high">High</option>
+                                        <option value="urgent">Urgent</option>
+                                    </select>
+                                </div>
+                                
+                                <div class="form-group">
+                                    <label for="due-date">Due Date</label>
+                                    <input type="date" id="due-date" name="due-date" required>
+                                </div>
+                            </div>
+                            
+                            <button type="submit" class="btn-primary">Create Task</button>
+                        </form>
+                    </div>
+
+                    <div class="task-list-section">
+                        <div class="section-header">
+                            <h2>Task List</h2>
+                            <div class="filters">
+                                <select class="filter-select" id="status-filter">
+                                    <option value="all">All Tasks</option>
+                                    <option value="pending">Pending</option>
+                                    <option value="in-progress">In Progress</option>
+                                    <option value="completed">Completed</option>
+                                </select>
+                                <input type="text" class="search-input" id="search-input" placeholder="Search tasks...">
+                            </div>
+                        </div>
+
+                        <div class="task-list" id="task-list">
+                            <!-- Tasks will be dynamically loaded here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Task Detail Modal with Chat -->
+    <div id="task-detail-modal" class="modal">
+        <div class="modal-content large">
+            <div class="modal-header">
+                <h2 id="modal-task-title">Task Details</h2>
+                <span class="close" onclick="closeTaskModal()">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="task-detail-content">
+                    <div class="task-info-panel">
+                        <div class="task-details" id="task-details">
+                            <!-- Task details will be loaded here -->
+                        </div>
+                        
+                        <div class="task-status-update">
+                            <h4>Update Status</h4>
+                            <select id="status-update">
+                                <option value="pending">Pending</option>
+                                <option value="in-progress">In Progress</option>
+                                <option value="completed">Completed</option>
+                            </select>
+                            <button onclick="updateTaskStatus()" class="btn-primary">Update</button>
+                        </div>
+                    </div>
+                    
+                    <div class="chat-panel">
+                        <div class="chat-header">
+                            <h4>Task Discussion</h4>
+                            <div class="online-users" id="online-users">
+                                <!-- Online users will be shown here -->
+                            </div>
+                        </div>
+                        
+                        <div class="chat-messages" id="chat-messages">
+                            <!-- Chat messages will be loaded here -->
+                        </div>
+                        
+                        <div class="chat-input-area">
+                            <input type="text" id="chat-input" placeholder="Type your message..." onkeypress="handleChatKeyPress(event)">
+                            <button onclick="sendMessage()" class="btn-send">Send</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Task Modal -->
+    <div id="edit-task-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Edit Task</h2>
+                <span class="close" onclick="closeEditModal()">&times;</span>
+            </div>
+            <div class="modal-body">
+                <form id="edit-task-form">
+                    <div class="form-group">
+                        <label for="edit-task-title">Task Title</label>
+                        <input type="text" id="edit-task-title" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="edit-task-description">Description</label>
+                        <textarea id="edit-task-description" required></textarea>
+                    </div>
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="edit-assigned-to">Assign To</label>
+                            <select id="edit-assigned-to" required>
+                                <option value="">Select Employee</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="edit-priority">Priority</label>
+                            <select id="edit-priority" required>
+                                <option value="low">Low</option>
+                                <option value="medium">Medium</option>
+                                <option value="high">High</option>
+                                <option value="urgent">Urgent</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="edit-due-date">Due Date</label>
+                            <input type="date" id="edit-due-date" required>
+                        </div>
+                    </div>
+                    
+                    <div class="modal-actions">
+                        <button type="button" onclick="closeEditModal()" class="btn-secondary">Cancel</button>
+                        <button type="submit" class="btn-primary">Update Task</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script src="dashboard.js"></script>
+</body>
+</html>

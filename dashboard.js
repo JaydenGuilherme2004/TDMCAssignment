@@ -1,613 +1,513 @@
-// Task Management System with Chat Functionality
+// public/dashboard.js
+const socket = io(); // Connect Socket.IO
+
 class TaskManager {
-    constructor() {
-        this.currentUser = null;
-        this.users = this.loadUsers();
-        this.tasks = this.loadTasks();
-        this.messages = this.loadMessages();
-        this.currentTaskId = null;
-        this.editingTaskId = null;
-        this.onlineUsers = new Set();
-        
-        this.initializeApp();
-        this.simulateOnlineUsers();
+  constructor() {
+    this.currentUser = null;
+    this.users = [];
+    this.tasks = [];
+    this.messages = [];
+    this.currentTaskId = null;
+    this.editingTaskId = null;
+    this.onlineUsers = new Set();
+
+    this.initializeApp();
+  }
+
+  async initializeApp() {
+    // Load initial data from backend
+    await this.fetchInitialData();
+
+    // Setup UI event listeners
+    this.setupEventListeners();
+
+    // Show auth modal
+    this.showAuthModal();
+
+    // Setup Socket.IO listeners for real-time updates
+    this.setupSocketListeners();
+  }
+
+  async fetchInitialData() {
+    try {
+      const [usersRes, tasksRes, messagesRes] = await Promise.all([
+        fetch('/api/users'),
+        fetch('/api/tasks'),
+        fetch('/api/messages'),
+      ]);
+      this.users = await usersRes.json();
+      this.tasks = await tasksRes.json();
+      this.messages = await messagesRes.json();
+    } catch (err) {
+      console.error('Failed to load data:', err);
+      alert('Failed to load initial data from server.');
+    }
+  }
+
+  setupEventListeners() {
+    document.getElementById('loginForm').addEventListener('submit', (e) => this.handleLogin(e));
+    document.getElementById('registerForm').addEventListener('submit', (e) => this.handleRegister(e));
+    document.getElementById('task-form').addEventListener('submit', (e) => this.handleCreateTask(e));
+    document.getElementById('edit-task-form').addEventListener('submit', (e) => this.handleEditTask(e));
+    document.getElementById('status-filter').addEventListener('change', () => this.filterTasks());
+    document.getElementById('search-input').addEventListener('input', () => this.filterTasks());
+
+    window.addEventListener('click', (e) => {
+      if (e.target.classList.contains('modal')) {
+        e.target.style.display = 'none';
+      }
+    });
+  }
+
+  setupSocketListeners() {
+    socket.on('updateUsers', (users) => {
+      this.users = users;
+      if (this.currentUser && !users.find(u => u.email === this.currentUser.email)) {
+        alert('You have been removed by admin. Logging out.');
+        this.logout();
+        return;
+      }
+      this.populateUserDropdowns();
+    });
+
+    socket.on('updateTasks', (tasks) => {
+      this.tasks = tasks;
+      this.renderTasks();
+      this.updateStats();
+      if (this.currentTaskId) this.viewTask(this.currentTaskId);
+    });
+
+    socket.on('updateMessages', (messages) => {
+      this.messages = messages;
+      if (this.currentTaskId) this.loadTaskMessages(this.currentTaskId);
+    });
+  }
+
+  showAuthModal() {
+    document.getElementById('auth-modal').style.display = 'block';
+    document.getElementById('main-app').style.display = 'none';
+  }
+
+  showLogin() {
+    document.getElementById('login-form').style.display = 'block';
+    document.getElementById('register-form').style.display = 'none';
+    document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+    document.querySelectorAll('.tab-btn')[0].classList.add('active');
+  }
+
+  showRegister() {
+    document.getElementById('login-form').style.display = 'none';
+    document.getElementById('register-form').style.display = 'block';
+    document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+    document.querySelectorAll('.tab-btn')[1].classList.add('active');
+  }
+
+  async handleLogin(e) {
+    e.preventDefault();
+    const email = document.getElementById('login-email').value.trim();
+    const password = document.getElementById('login-password').value.trim();
+
+    const user = this.users.find(u => u.email === email && u.password === password);
+    if (user) {
+      this.currentUser = user;
+      this.onLogin();
+    } else {
+      this.showNotification('Invalid email or password', 'error');
+    }
+  }
+
+  async handleRegister(e) {
+    e.preventDefault();
+    const name = document.getElementById('register-name').value.trim();
+    const email = document.getElementById('register-email').value.trim();
+    const password = document.getElementById('register-password').value.trim();
+    const role = document.getElementById('register-role').value;
+
+    if (this.users.find(u => u.email === email)) {
+      this.showNotification('Email already exists', 'error');
+      return;
     }
 
-    // Initialize the application
-    initializeApp() {
-        this.showAuthModal();
-        this.setupEventListeners();
-        this.loadSampleData();
-    }
+    const newUser = {
+      id: Date.now(),
+      name,
+      email,
+      password,
+      role,
+    };
 
-    // Load sample data if none exists
-    loadSampleData() {
-        if (this.users.length === 0) {
-            this.users = [
-                { id: 1, name: 'Admin User', email: 'admin@demo.com', role: 'admin', password: 'demo123' },
-                { id: 2, name: 'John Smith', email: 'john@demo.com', role: 'employee', password: 'demo123' },
-                { id: 3, name: 'Sarah Johnson', email: 'sarah@demo.com', role: 'manager', password: 'demo123' },
-                { id: 4, name: 'Mike Davis', email: 'mike@demo.com', role: 'employee', password: 'demo123' },
-                { id: 5, name: 'Lisa Wilson', email: 'lisa@demo.com', role: 'employee', password: 'demo123' }
-            ];
-            this.saveUsers();
-        }
-
-        if (this.tasks.length === 0) {
-            this.tasks = [
-                {
-                    id: 1,
-                    title: 'Update website design',
-                    description: 'Redesign the homepage layout and improve user experience',
-                    assignedTo: 'John Smith',
-                    assignedToId: 2,
-                    createdBy: 'Admin User',
-                    createdById: 1,
-                    priority: 'high',
-                    status: 'in-progress',
-                    dueDate: '2025-07-30',
-                    createdAt: new Date().toISOString()
-                },
-                {
-                    id: 2,
-                    title: 'Database backup',
-                    description: 'Perform weekly database backup and verify data integrity',
-                    assignedTo: 'Sarah Johnson',
-                    assignedToId: 3,
-                    createdBy: 'Admin User',
-                    createdById: 1,
-                    priority: 'medium',
-                    status: 'pending',
-                    dueDate: '2025-07-25',
-                    createdAt: new Date().toISOString()
-                }
-            ];
-            this.saveTasks();
-        }
-    }
-
-    // Setup event listeners
-    setupEventListeners() {
-        // Auth forms
-        document.getElementById('loginForm').addEventListener('submit', (e) => this.handleLogin(e));
-        document.getElementById('registerForm').addEventListener('submit', (e) => this.handleRegister(e));
-        
-        // Task form
-        document.getElementById('task-form').addEventListener('submit', (e) => this.handleCreateTask(e));
-        document.getElementById('edit-task-form').addEventListener('submit', (e) => this.handleEditTask(e));
-        
-        // Filters and search
-        document.getElementById('status-filter').addEventListener('change', () => this.filterTasks());
-        document.getElementById('search-input').addEventListener('input', () => this.filterTasks());
-        
-        // Close modals when clicking outside
-        window.addEventListener('click', (e) => {
-            if (e.target.classList.contains('modal')) {
-                e.target.style.display = 'none';
-            }
-        });
-    }
-
-    // Authentication methods
-    showAuthModal() {
-        document.getElementById('auth-modal').style.display = 'block';
-        document.getElementById('main-app').style.display = 'none';
-    }
-
-    showLogin() {
-        document.getElementById('login-form').style.display = 'block';
-        document.getElementById('register-form').style.display = 'none';
-        document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
-        document.querySelectorAll('.tab-btn')[0].classList.add('active');
-    }
-
-    showRegister() {
-        document.getElementById('login-form').style.display = 'none';
-        document.getElementById('register-form').style.display = 'block';
-        document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
-        document.querySelectorAll('.tab-btn')[1].classList.add('active');
-    }
-
-    quickLogin(email, name) {
-        const user = this.users.find(u => u.email === email);
-        if (user) {
-            this.currentUser = user;
-            this.onLogin();
-        }
-    }
-
-    handleLogin(e) {
-        e.preventDefault();
-        const email = document.getElementById('login-email').value;
-        const password = document.getElementById('login-password').value;
-        
-        const user = this.users.find(u => u.email === email && u.password === password);
-        if (user) {
-            this.currentUser = user;
-            this.onLogin();
-        } else {
-            this.showNotification('Invalid email or password', 'error');
-        }
-    }
-
-    handleRegister(e) {
-        e.preventDefault();
-        const name = document.getElementById('register-name').value;
-        const email = document.getElementById('register-email').value;
-        const password = document.getElementById('register-password').value;
-        const role = document.getElementById('register-role').value;
-        
-        if (this.users.find(u => u.email === email)) {
-            this.showNotification('Email already exists', 'error');
-            return;
-        }
-        
-        const newUser = {
-            id: Date.now(),
-            name,
-            email,
-            password,
-            role
-        };
-        
-        this.users.push(newUser);
-        this.saveUsers();
+    try {
+      const res = await fetch('/api/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newUser),
+      });
+      if (res.ok) {
         this.currentUser = newUser;
+        this.users.push(newUser);
         this.onLogin();
         this.showNotification('Account created successfully!', 'success');
+      } else {
+        this.showNotification('Registration failed', 'error');
+      }
+    } catch {
+      this.showNotification('Error connecting to server', 'error');
     }
+  }
 
-    onLogin() {
-        document.getElementById('auth-modal').style.display = 'none';
-        document.getElementById('main-app').style.display = 'block';
-        document.getElementById('user-welcome').textContent = `Welcome, ${this.currentUser.name}`;
-        
-        this.populateUserDropdowns();
-        this.renderTasks();
-        this.updateStats();
-        this.onlineUsers.add(this.currentUser.name);
-        this.updateOnlineUsers();
-    }
+  onLogin() {
+    document.getElementById('auth-modal').style.display = 'none';
+    document.getElementById('main-app').style.display = 'block';
+    document.getElementById('user-welcome').textContent = `Welcome, ${this.currentUser.name}`;
 
-    logout() {
-        this.onlineUsers.delete(this.currentUser.name);
-        this.currentUser = null;
-        this.showAuthModal();
-        this.closeTaskModal();
-        this.closeEditModal();
-    }
+    this.populateUserDropdowns();
+    this.renderTasks();
+    this.updateStats();
 
-    // User management
-    populateUserDropdowns() {
-        const assignedToSelect = document.getElementById('assigned-to');
-        const editAssignedToSelect = document.getElementById('edit-assigned-to');
-        
-        [assignedToSelect, editAssignedToSelect].forEach(select => {
-            select.innerHTML = '<option value="">Select Employee</option>';
-            this.users.forEach(user => {
-                const option = document.createElement('option');
-                option.value = user.name;
-                option.textContent = user.name;
-                option.dataset.userId = user.id;
-                select.appendChild(option);
-            });
-        });
-    }
+    this.onlineUsers.add(this.currentUser.name);
+    this.updateOnlineUsers();
+  }
 
-    // Task management
-    handleCreateTask(e) {
-        e.preventDefault();
-        const formData = new FormData(e.target);
-        const assignedToOption = document.querySelector('#assigned-to option:checked');
-        
-        const task = {
-            id: Date.now(),
-            title: formData.get('task-title'),
-            description: formData.get('task-description'),
-            assignedTo: formData.get('assigned-to'),
-            assignedToId: parseInt(assignedToOption.dataset.userId),
-            createdBy: this.currentUser.name,
-            createdById: this.currentUser.id,
-            priority: formData.get('priority'),
-            status: 'pending',
-            dueDate: formData.get('due-date'),
-            createdAt: new Date().toISOString()
-        };
-        
+  logout() {
+    this.onlineUsers.delete(this.currentUser.name);
+    this.currentUser = null;
+    this.showAuthModal();
+    this.closeTaskModal();
+    this.closeEditModal();
+  }
+
+  populateUserDropdowns() {
+    const assignedToSelect = document.getElementById('assigned-to');
+    const editAssignedToSelect = document.getElementById('edit-assigned-to');
+
+    [assignedToSelect, editAssignedToSelect].forEach(select => {
+      select.innerHTML = '<option value="">Select Employee</option>';
+      this.users.forEach(user => {
+        const option = document.createElement('option');
+        option.value = user.name;
+        option.textContent = user.name;
+        option.dataset.userId = user.id;
+        select.appendChild(option);
+      });
+    });
+  }
+
+  async handleCreateTask(e) {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    const assignedToOption = document.querySelector('#assigned-to option:checked');
+
+    const task = {
+      id: Date.now(),
+      title: formData.get('task-title'),
+      description: formData.get('task-description'),
+      assignedTo: formData.get('assigned-to'),
+      assignedToId: parseInt(assignedToOption.dataset.userId),
+      createdBy: this.currentUser.name,
+      createdById: this.currentUser.id,
+      priority: formData.get('priority'),
+      status: 'pending',
+      dueDate: formData.get('due-date'),
+      createdAt: new Date().toISOString(),
+    };
+
+    try {
+      const res = await fetch('/api/tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(task),
+      });
+      if (res.ok) {
         this.tasks.push(task);
-        this.saveTasks();
         this.renderTasks();
         this.updateStats();
         e.target.reset();
         this.showNotification('Task created successfully!', 'success');
+      } else {
+        this.showNotification('Failed to create task', 'error');
+      }
+    } catch {
+      this.showNotification('Error connecting to server', 'error');
     }
+  }
 
-    handleEditTask(e) {
-        e.preventDefault();
-        const task = this.tasks.find(t => t.id === this.editingTaskId);
-        if (!task) return;
-        
-        const assignedToOption = document.querySelector('#edit-assigned-to option:checked');
-        
-        task.title = document.getElementById('edit-task-title').value;
-        task.description = document.getElementById('edit-task-description').value;
-        task.assignedTo = document.getElementById('edit-assigned-to').value;
-        task.assignedToId = parseInt(assignedToOption.dataset.userId);
-        task.priority = document.getElementById('edit-priority').value;
-        task.dueDate = document.getElementById('edit-due-date').value;
-        
-        this.saveTasks();
+  async handleEditTask(e) {
+    e.preventDefault();
+    const task = this.tasks.find(t => t.id === this.editingTaskId);
+    if (!task) return;
+
+    const assignedToOption = document.querySelector('#edit-assigned-to option:checked');
+
+    const updatedTask = {
+      title: document.getElementById('edit-task-title').value,
+      description: document.getElementById('edit-task-description').value,
+      assignedTo: document.getElementById('edit-assigned-to').value,
+      assignedToId: parseInt(assignedToOption.dataset.userId),
+      priority: document.getElementById('edit-priority').value,
+      dueDate: document.getElementById('edit-due-date').value,
+    };
+
+    try {
+      const res = await fetch(`/api/tasks/${this.editingTaskId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedTask),
+      });
+      if (res.ok) {
+        Object.assign(task, updatedTask);
         this.renderTasks();
         this.updateStats();
         this.closeEditModal();
         this.showNotification('Task updated successfully!', 'success');
+      } else {
+        this.showNotification('Failed to update task', 'error');
+      }
+    } catch {
+      this.showNotification('Error connecting to server', 'error');
     }
+  }
 
-    deleteTask(taskId) {
-        if (confirm('Are you sure you want to delete this task?')) {
-            this.tasks = this.tasks.filter(t => t.id !== taskId);
-            this.saveTasks();
-            this.renderTasks();
-            this.updateStats();
-            this.showNotification('Task deleted successfully!', 'success');
-        }
-    }
-
-    editTask(taskId) {
-        const task = this.tasks.find(t => t.id === taskId);
-        if (!task) return;
-        
-        this.editingTaskId = taskId;
-        document.getElementById('edit-task-title').value = task.title;
-        document.getElementById('edit-task-description').value = task.description;
-        document.getElementById('edit-assigned-to').value = task.assignedTo;
-        document.getElementById('edit-priority').value = task.priority;
-        document.getElementById('edit-due-date').value = task.dueDate;
-        
-        document.getElementById('edit-task-modal').style.display = 'block';
-    }
-
-    viewTask(taskId) {
-        const task = this.tasks.find(t => t.id === taskId);
-        if (!task) return;
-        
-        this.currentTaskId = taskId;
-        document.getElementById('modal-task-title').textContent = task.title;
-        
-        const taskDetails = document.getElementById('task-details');
-        taskDetails.innerHTML = `
-            <h3>${task.title}</h3>
-            <p>${task.description}</p>
-            <div class="task-meta-item">
-                <span>Assigned to:</span>
-                <strong>${task.assignedTo}</strong>
-            </div>
-            <div class="task-meta-item">
-                <span>Created by:</span>
-                <strong>${task.createdBy}</strong>
-            </div>
-            <div class="task-meta-item">
-                <span>Priority:</span>
-                <span class="priority ${task.priority}">${task.priority.charAt(0).toUpperCase() + task.priority.slice(1)}</span>
-            </div>
-            <div class="task-meta-item">
-                <span>Status:</span>
-                <span class="status ${task.status}">${task.status.replace('-', ' ').replace(/\b\w/g, l => l.toUpperCase())}</span>
-            </div>
-            <div class="task-meta-item">
-                <span>Due Date:</span>
-                <strong>${new Date(task.dueDate).toLocaleDateString()}</strong>
-            </div>
-            <div class="task-meta-item">
-                <span>Created:</span>
-                <strong>${new Date(task.createdAt).toLocaleDateString()}</strong>
-            </div>
-        `;
-        
-        document.getElementById('status-update').value = task.status;
-        this.loadTaskMessages(taskId);
-        document.getElementById('task-detail-modal').style.display = 'block';
-    }
-
-    updateTaskStatus() {
-        const task = this.tasks.find(t => t.id === this.currentTaskId);
-        if (!task) return;
-        
-        const newStatus = document.getElementById('status-update').value;
-        const oldStatus = task.status;
-        task.status = newStatus;
-        
-        this.saveTasks();
+  async deleteTask(taskId) {
+    if (!confirm('Are you sure you want to delete this task?')) return;
+    try {
+      const res = await fetch(`/api/tasks/${taskId}`, {
+        method: 'DELETE',
+      });
+      if (res.ok) {
+        this.tasks = this.tasks.filter(t => t.id !== taskId);
         this.renderTasks();
         this.updateStats();
-        
-        // Add system message about status change
-        this.addSystemMessage(this.currentTaskId, `Task status changed from "${oldStatus.replace('-', ' ')}" to "${newStatus.replace('-', ' ')}" by ${this.currentUser.name}`);
-        
-        // Update task details display
+        this.showNotification('Task deleted successfully!', 'success');
+      } else {
+        this.showNotification('Failed to delete task', 'error');
+      }
+    } catch {
+      this.showNotification('Error connecting to server', 'error');
+    }
+  }
+
+  editTask(taskId) {
+    const task = this.tasks.find(t => t.id === taskId);
+    if (!task) return;
+
+    this.editingTaskId = taskId;
+    document.getElementById('edit-task-title').value = task.title;
+    document.getElementById('edit-task-description').value = task.description;
+    document.getElementById('edit-assigned-to').value = task.assignedTo;
+    document.getElementById('edit-priority').value = task.priority;
+    document.getElementById('edit-due-date').value = task.dueDate;
+
+    document.getElementById('edit-task-modal').style.display = 'block';
+  }
+
+  viewTask(taskId) {
+    const task = this.tasks.find(t => t.id === taskId);
+    if (!task) return;
+
+    this.currentTaskId = taskId;
+    document.getElementById('modal-task-title').textContent = task.title;
+
+    const taskDetails = document.getElementById('task-details');
+    taskDetails.innerHTML = `
+      <h3>${task.title}</h3>
+      <p>${task.description}</p>
+      <div class="task-meta-item"><span>Assigned to:</span> <strong>${task.assignedTo}</strong></div>
+      <div class="task-meta-item"><span>Created by:</span> <strong>${task.createdBy}</strong></div>
+      <div class="task-meta-item"><span>Priority:</span> <span class="priority ${task.priority}">${task.priority.charAt(0).toUpperCase() + task.priority.slice(1)}</span></div>
+      <div class="task-meta-item"><span>Status:</span> <span class="status ${task.status}">${task.status.replace('-', ' ').replace(/\b\w/g, l => l.toUpperCase())}</span></div>
+      <div class="task-meta-item"><span>Due Date:</span> <strong>${new Date(task.dueDate).toLocaleDateString()}</strong></div>
+      <div class="task-meta-item"><span>Created:</span> <strong>${new Date(task.createdAt).toLocaleString()}</strong></div>
+    `;
+
+    document.getElementById('status-update').value = task.status;
+
+    this.loadTaskMessages(taskId);
+    document.getElementById('task-detail-modal').style.display = 'block';
+  }
+
+  closeTaskModal() {
+    document.getElementById('task-detail-modal').style.display = 'none';
+    this.currentTaskId = null;
+  }
+
+  closeEditModal() {
+    document.getElementById('edit-task-modal').style.display = 'none';
+    this.editingTaskId = null;
+  }
+
+  async updateTaskStatus() {
+    if (!this.currentTaskId) return;
+    const newStatus = document.getElementById('status-update').value;
+    const task = this.tasks.find(t => t.id === this.currentTaskId);
+    if (!task) return;
+
+    try {
+      const res = await fetch(`/api/tasks/${this.currentTaskId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus }),
+      });
+      if (res.ok) {
+        task.status = newStatus;
+        this.renderTasks();
+        this.updateStats();
         this.viewTask(this.currentTaskId);
         this.showNotification('Task status updated!', 'success');
+      } else {
+        this.showNotification('Failed to update status', 'error');
+      }
+    } catch {
+      this.showNotification('Error connecting to server', 'error');
     }
+  }
 
-    // Chat functionality
-    loadTaskMessages(taskId) {
-        const taskMessages = this.messages.filter(m => m.taskId === taskId);
-        const chatMessages = document.getElementById('chat-messages');
-        
-        chatMessages.innerHTML = '';
-        taskMessages.forEach(message => {
-            this.displayMessage(message);
-        });
-        
-        chatMessages.scrollTop = chatMessages.scrollHeight;
-    }
+  loadTaskMessages(taskId) {
+    const chatMessagesContainer = document.getElementById('chat-messages');
+    chatMessagesContainer.innerHTML = '';
 
-    sendMessage() {
-        const input = document.getElementById('chat-input');
-        const content = input.value.trim();
-        
-        if (!content || !this.currentTaskId) return;
-        
-        const message = {
-            id: Date.now(),
-            taskId: this.currentTaskId,
-            userId: this.currentUser.id,
-            userName: this.currentUser.name,
-            content: content,
-            timestamp: new Date().toISOString(),
-            type: 'user'
-        };
-        
+    const messages = this.messages.filter(m => m.taskId === taskId);
+    messages.forEach(msg => {
+      const div = document.createElement('div');
+      div.classList.add('chat-message');
+      div.innerHTML = `<strong>${msg.user}:</strong> ${msg.text}`;
+      chatMessagesContainer.appendChild(div);
+    });
+  }
+
+  async sendMessage() {
+    if (!this.currentTaskId) return;
+    const input = document.getElementById('chat-input');
+    const text = input.value.trim();
+    if (!text) return;
+
+    const message = {
+      id: Date.now(),
+      taskId: this.currentTaskId,
+      user: this.currentUser.name,
+      text,
+      createdAt: new Date().toISOString(),
+    };
+
+    try {
+      const res = await fetch('/api/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(message),
+      });
+      if (res.ok) {
         this.messages.push(message);
-        this.saveMessages();
-        this.displayMessage(message);
-        
+        this.loadTaskMessages(this.currentTaskId);
         input.value = '';
-        document.getElementById('chat-messages').scrollTop = document.getElementById('chat-messages').scrollHeight;
+      } else {
+        this.showNotification('Failed to send message', 'error');
+      }
+    } catch {
+      this.showNotification('Error connecting to server', 'error');
+    }
+  }
+
+  handleChatKeyPress(e) {
+    if (e.key === 'Enter') {
+      this.sendMessage();
+    }
+  }
+
+  renderTasks() {
+    const container = document.getElementById('task-list');
+    container.innerHTML = '';
+
+    // Apply current filter & search
+    const filter = document.getElementById('status-filter').value;
+    const search = document.getElementById('search-input').value.toLowerCase();
+
+    let filteredTasks = this.tasks;
+    if (filter !== 'all') {
+      filteredTasks = filteredTasks.filter(t => t.status === filter || (filter === 'pending' && t.status === 'pending'));
     }
 
-    addSystemMessage(taskId, content) {
-        const message = {
-            id: Date.now(),
-            taskId: taskId,
-            userId: 0,
-            userName: 'System',
-            content: content,
-            timestamp: new Date().toISOString(),
-            type: 'system'
-        };
-        
-        this.messages.push(message);
-        this.saveMessages();
-        
-        if (this.currentTaskId === taskId) {
-            this.displayMessage(message);
-            document.getElementById('chat-messages').scrollTop = document.getElementById('chat-messages').scrollHeight;
-        }
-    }
+    filteredTasks = filteredTasks.filter(t =>
+      t.title.toLowerCase().includes(search) ||
+      t.description.toLowerCase().includes(search) ||
+      t.assignedTo.toLowerCase().includes(search)
+    );
 
-    displayMessage(message) {
-        const chatMessages = document.getElementById('chat-messages');
-        const messageDiv = document.createElement('div');
-        messageDiv.className = 'chat-message';
-        
-        const isOwnMessage = message.userId === this.currentUser?.id;
-        const isSystemMessage = message.type === 'system';
-        
-        messageDiv.innerHTML = `
-            <div class="message-header">
-                <span class="message-author" style="${isSystemMessage ? 'color: #ffc107;' : ''}">${message.userName}</span>
-                <span class="message-time">${new Date(message.timestamp).toLocaleTimeString()}</span>
-            </div>
-            <div class="message-content ${isOwnMessage ? 'own-message' : ''} ${isSystemMessage ? 'system-message' : ''}">
-                ${message.content}
-            </div>
-        `;
-        
-        chatMessages.appendChild(messageDiv);
-    }
+    filteredTasks.forEach(task => {
+      const div = document.createElement('div');
+      div.classList.add('task-card');
+      div.innerHTML = `
+        <h3>${task.title}</h3>
+        <p>${task.description.substring(0, 100)}${task.description.length > 100 ? '...' : ''}</p>
+        <div class="task-meta">
+          <span><strong>Assigned to:</strong> ${task.assignedTo}</span>
+          <span><strong>Status:</strong> ${task.status}</span>
+          <span><strong>Priority:</strong> ${task.priority}</span>
+          <span><strong>Due:</strong> ${new Date(task.dueDate).toLocaleDateString()}</span>
+        </div>
+        <div class="task-actions">
+          <button onclick="taskManager.viewTask(${task.id})">View</button>
+          <button onclick="taskManager.editTask(${task.id})">Edit</button>
+          <button onclick="taskManager.deleteTask(${task.id})">Delete</button>
+        </div>
+      `;
+      container.appendChild(div);
+    });
+  }
 
-    handleChatKeyPress(event) {
-        if (event.key === 'Enter') {
-            this.sendMessage();
-        }
-    }
+  updateStats() {
+    const total = this.tasks.length;
+    const inProgress = this.tasks.filter(t => t.status === 'in-progress').length;
+    const completed = this.tasks.filter(t => t.status === 'completed').length;
+    const overdue = this.tasks.filter(t => {
+      if (!t.dueDate) return false;
+      return new Date(t.dueDate) < new Date() && t.status !== 'completed';
+    }).length;
 
-    // Online users simulation
-    simulateOnlineUsers() {
-        // Simulate random users coming online/offline
-        setInterval(() => {
-            const allUsers = this.users.map(u => u.name);
-            const randomUser = allUsers[Math.floor(Math.random() * allUsers.length)];
-            
-            if (this.onlineUsers.has(randomUser)) {
-                if (randomUser !== this.currentUser?.name && Math.random() > 0.7) {
-                    this.onlineUsers.delete(randomUser);
-                }
-            } else {
-                if (Math.random() > 0.6) {
-                    this.onlineUsers.add(randomUser);
-                }
-            }
-            
-            this.updateOnlineUsers();
-        }, 5000);
-    }
+    document.getElementById('total-tasks').textContent = total;
+    document.getElementById('in-progress-tasks').textContent = inProgress;
+    document.getElementById('completed-tasks').textContent = completed;
+    document.getElementById('overdue-tasks').textContent = overdue;
+  }
 
-    updateOnlineUsers() {
-        const onlineUsersDiv = document.getElementById('online-users');
-        if (!onlineUsersDiv) return;
-        
-        onlineUsersDiv.innerHTML = '';
-        this.onlineUsers.forEach(userName => {
-            const userSpan = document.createElement('span');
-            userSpan.className = 'online-user';
-            userSpan.innerHTML = `<span class="online-dot"></span>${userName}`;
-            onlineUsersDiv.appendChild(userSpan);
-        });
-    }
+  filterTasks() {
+    this.renderTasks();
+  }
 
-    // Rendering and filtering
-    renderTasks() {
-        const taskList = document.getElementById('task-list');
-        const filteredTasks = this.getFilteredTasks();
-        
-        if (filteredTasks.length === 0) {
-            taskList.innerHTML = '<div style="text-align: center; padding: 2rem; color: #666;">No tasks found</div>';
-            return;
-        }
-        
-        taskList.innerHTML = filteredTasks.map(task => `
-            <div class="task-item" onclick="taskManager.viewTask(${task.id})">
-                <div class="task-info">
-                    <h4>${task.title}</h4>
-                    <p>${task.description}</p>
-                    <div class="task-meta">
-                        <span class="assigned-to">Assigned to: ${task.assignedTo}</span>
-                        <span class="due-date">Due: ${new Date(task.dueDate).toLocaleDateString()}</span>
-                    </div>
-                </div>
-                <div class="task-status">
-                    <span class="priority ${task.priority}">${task.priority.charAt(0).toUpperCase() + task.priority.slice(1)}</span>
-                    <span class="status ${task.status}">${task.status.replace('-', ' ').replace(/\b\w/g, l => l.toUpperCase())}</span>
-                </div>
-                <div class="task-actions" onclick="event.stopPropagation()">
-                    <button class="btn-edit" onclick="taskManager.editTask(${task.id})">Edit</button>
-                    <button class="btn-delete" onclick="taskManager.deleteTask(${task.id})">Delete</button>
-                </div>
-            </div>
-        `).join('');
-    }
+  updateOnlineUsers() {
+    const container = document.getElementById('online-users');
+    container.innerHTML = '';
+    this.onlineUsers.forEach(name => {
+      const span = document.createElement('span');
+      span.textContent = name;
+      span.classList.add('online-user');
+      container.appendChild(span);
+    });
+  }
 
-    getFilteredTasks() {
-        let filtered = [...this.tasks];
-        
-        // Filter by status
-        const statusFilter = document.getElementById('status-filter').value;
-        if (statusFilter !== 'all') {
-            filtered = filtered.filter(task => task.status === statusFilter);
-        }
-        
-        // Filter by search term
-        const searchTerm = document.getElementById('search-input').value.toLowerCase();
-        if (searchTerm) {
-            filtered = filtered.filter(task => 
-                task.title.toLowerCase().includes(searchTerm) ||
-                task.description.toLowerCase().includes(searchTerm) ||
-                task.assignedTo.toLowerCase().includes(searchTerm)
-            );
-        }
-        
-        return filtered.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  // Demo quick login buttons
+  quickLogin(email, name) {
+    const user = this.users.find(u => u.email === email);
+    if (user) {
+      this.currentUser = user;
+      this.onLogin();
+    } else {
+      alert('Demo user not found');
     }
+  }
 
-    filterTasks() {
-        this.renderTasks();
-    }
-
-    updateStats() {
-        const total = this.tasks.length;
-        const inProgress = this.tasks.filter(t => t.status === 'in-progress').length;
-        const completed = this.tasks.filter(t => t.status === 'completed').length;
-        const overdue = this.tasks.filter(t => new Date(t.dueDate) < new Date() && t.status !== 'completed').length;
-        
-        document.getElementById('total-tasks').textContent = total;
-        document.getElementById('in-progress-tasks').textContent = inProgress;
-        document.getElementById('completed-tasks').textContent = completed;
-        document.getElementById('overdue-tasks').textContent = overdue;
-    }
-
-    // Modal management
-    closeTaskModal() {
-        document.getElementById('task-detail-modal').style.display = 'none';
-        this.currentTaskId = null;
-    }
-
-    closeEditModal() {
-        document.getElementById('edit-task-modal').style.display = 'none';
-        this.editingTaskId = null;
-    }
-
-    // Utility methods
-    showNotification(message, type) {
-        const notification = document.createElement('div');
-        notification.className = `notification ${type}`;
-        notification.textContent = message;
-        document.body.appendChild(notification);
-        
-        setTimeout(() => {
-            notification.style.animation = 'slideOutRight 0.3s';
-            setTimeout(() => {
-                document.body.removeChild(notification);
-            }, 300);
-        }, 3000);
-    }
-
-    // Data persistence (using localStorage as fallback)
-    loadUsers() {
-        const stored = localStorage.getItem('taskManager_users');
-        return stored ? JSON.parse(stored) : [];
-    }
-
-    saveUsers() {
-        localStorage.setItem('taskManager_users', JSON.stringify(this.users));
-    }
-
-    loadTasks() {
-        const stored = localStorage.getItem('taskManager_tasks');
-        return stored ? JSON.parse(stored) : [];
-    }
-
-    saveTasks() {
-        localStorage.setItem('taskManager_tasks', JSON.stringify(this.tasks));
-    }
-
-    loadMessages() {
-        const stored = localStorage.getItem('taskManager_messages');
-        return stored ? JSON.parse(stored) : [];
-    }
-
-    saveMessages() {
-        localStorage.setItem('taskManager_messages', JSON.stringify(this.messages));
-    }
+  showNotification(msg, type = 'info') {
+    alert(msg); // Simple alert for now. You can replace with a nicer UI toast.
+  }
 }
 
-// Global functions for HTML event handlers
-function showLogin() {
-    taskManager.showLogin();
-}
-
-function showRegister() {
-    taskManager.showRegister();
-}
-
-function quickLogin(email, name) {
-    taskManager.quickLogin(email, name);
-}
-
-function logout() {
-    taskManager.logout();
-}
-
-function closeTaskModal() {
-    taskManager.closeTaskModal();
-}
-
-function closeEditModal() {
-    taskManager.closeEditModal();
-}
-
-function updateTaskStatus() {
-    taskManager.updateTaskStatus();
-}
-
-function sendMessage() {
-    taskManager.sendMessage();
-}
-
-function handleChatKeyPress(event) {
-    taskManager.handleChatKeyPress(event);
-}
-
-// Initialize the application
 const taskManager = new TaskManager();
+
+// Expose some methods to global scope for inline HTML handlers
+window.showLogin = () => taskManager.showLogin();
+window.showRegister = () => taskManager.showRegister();
+window.logout = () => taskManager.logout();
+window.quickLogin = (email, name) => taskManager.quickLogin(email, name);
+window.closeTaskModal = () => taskManager.closeTaskModal();
+window.closeEditModal = () => taskManager.closeEditModal();
+window.handleChatKeyPress = (e) => taskManager.handleChatKeyPress(e);
+window.sendMessage = () => taskManager.sendMessage();
+window.updateTaskStatus = () => taskManager.updateTaskStatus();
